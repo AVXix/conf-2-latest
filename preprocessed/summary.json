@@ -1,0 +1,12 @@
+{
+  "seed": 42,
+  "recordings": 1000,
+  "segments": {
+    "train": 2097,
+    "validation": 450,
+    "test": 450
+  },
+  "skipped_invalid": [
+    "Data\\genres_original\\jazz\\jazz.00054.wav"
+  ]
+}

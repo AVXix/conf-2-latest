@@ -1,0 +1,289 @@
+The dataset contains approximately 500 complete music recordings.
+
+Each recording is approximately 8 minutes long and has:
+
+one WAV file
+one corresponding MIDI file
+one era label
+
+IMPORTANT:
+
+The 8-minute recording/piece is the independent labeled sample.
+
+The 12-second audio segment is NOT an independent dataset example. It is a temporal chunk extracted from a recording for processing by the audio model.
+
+Do NOT randomly split 12-second segments between train, validation, and test sets.
+
+This would cause data leakage because multiple segments from the same recording could appear in different splits.
+
+The train/validation/test split MUST occur at the recording/piece level BEFORE extracting 12-second segments.
+
+For example:
+
+complete recordings
+      |
+      +---- TRAIN recordings
+      |
+      +---- VALIDATION recordings
+      |
+      +---- TEST recordings
+                |
+                ↓
+         extract segments
+
+Use a configurable recording-level split, with a reasonable default such as:
+
+train = 70%
+validation = 15%
+test = 15%
+
+The exact split must be deterministic when a random seed is provided.
+
+Each recording is approximately:
+
+8 minutes = approximately 480 seconds
+
+The audio model operates on 12-second segments.
+
+Therefore, divide each recording into consecutive 12-second segments.
+
+For an approximately 480-second recording:
+
+480 / 12 = approximately 40 segments
+
+Use:
+
+segment_length = 12 seconds
+
+Do NOT change the model's 12-second input size.
+
+For every 12-second segment:
+
+12 seconds
+     |
+     +-- 0-3 sec
+     +-- 3-6 sec
+     +-- 6-9 sec
+     +-- 9-12 sec
+
+Each 3-second window is processed independently by pretrained Musicnn.
+
+Therefore one 12-second segment produces:
+
+[4, MUSICNN_FEATURE_DIM]
+
+Then:
+
+Linear(MUSICNN_FEATURE_DIM, 128)
+
+produces:
+
+[4, 128]
+
+The four tokens MUST remain separate until after the Transformer.
+
+Do NOT mean-pool the four Musicnn features before the Transformer.
+
+If the recording length is not exactly divisible by 12 seconds:
+
+Do not silently discard the remaining audio.
+The final segment must be zero-padded to exactly 12 seconds.
+The same rule applies to recordings shorter than 12 seconds.
+A recording shorter than 12 seconds must be padded rather than discarded.
+
+Keep the original WAV files unchanged.
+
+Every extracted 12-second segment must retain its parent recording ID.
+
+For example:
+
+recording_001
+    segment_000
+    segment_001
+    ...
+    segment_039
+
+The dataset item should preserve:
+
+recording_id
+segment_id
+wav_path
+midi_path
+era_label
+
+The era label of every segment comes from its parent recording.
+
+There are two different levels:
+
+RECORDING LEVEL:
+
+~500 recordings
+one MIDI file per recording
+one era label per recording
+
+SEGMENT LEVEL:
+
+approximately 40 × 12-second segments per recording
+used as inputs to the audio representation model
+
+Do not treat the approximately 20,000 resulting segments as approximately 20,000 independent labeled recordings.
+
+For each 12-second segment:
+
+12-sec segment
+      |
+      ↓
+4 × 3-sec windows
+      |
+      ↓
+pretrained Musicnn
+      |
+      ↓
+intermediate embeddings
+      |
+      ↓
+Linear → 128
+      |
+      ↓
+[4,128]
+      |
+      ↓
+sinusoidal positional encoding
+      |
+      ↓
+Transformer Encoder
+      |
+      ↓
+mean pooling
+      |
+      ↓
+[128]
+      |
+      ↓
+VAE
+      |
+      ↓
+z [64]
+
+The architecture above MUST NOT be changed.
+
+Because each recording produces multiple 12-second segments, the implementation must support collecting the representation of every segment belonging to a recording.
+
+For example:
+
+recording_001
+
+    segment_000 → z_000 [64]
+    segment_001 → z_001 [64]
+    segment_002 → z_002 [64]
+    ...
+    segment_039 → z_039 [64]
+
+The implementation must preserve the ordering and recording ID of these representations.
+
+Do NOT treat segments from different recordings as belonging to the same sequence.
+
+A recording-level aggregation step will be used later when constructing the final audio + MIDI era-classification system.
+
+Do not invent or add a new aggregation architecture at this stage unless explicitly specified.
+
+The MIDI file belongs to the complete recording, not to an individual 3-second or 12-second segment.
+
+Therefore:
+
+recording_001.wav
+recording_001.mid
+recording_001 → era label
+
+The MIDI features should ultimately be associated with the parent recording.
+
+Do not create a separate unrelated MIDI label for every audio segment.
+
+The implementation MUST guarantee:
+
+recording IDs in TRAIN
+∩
+recording IDs in VALIDATION
+= empty
+
+and:
+
+recording IDs in TRAIN
+∩
+recording IDs in TEST
+= empty
+
+and:
+
+recording IDs in VALIDATION
+∩
+recording IDs in TEST
+= empty
+
+All segments belonging to one recording must remain in exactly one split.
+
+The test set must contain recordings that were never used during training or validation.
+
+The eventual system should operate conceptually as:
+
+~500 complete recordings
+         |
+         ↓
+recording-level train/val/test split
+         |
+         ↓
+12-second audio segments
+         |
+         ↓
+Musicnn → Transformer → VAE
+         |
+         ↓
+audio representations
+         |
+         +------------------+
+                            |
+corresponding MIDI ---------+
+                            |
+                            ↓
+                     feature fusion
+                            |
+                            ↓
+                     era classifier
+                            |
+                            ↓
+                 recording-level era prediction
+
+The final evaluation must be performed at the recording/piece level.
+
+Do not report segment-level accuracy as the primary final result unless it is explicitly requested as an additional diagnostic.
+
+The primary classification result should answer:
+
+"Given an unseen complete recording,
+ what musical era does the model predict?"
+
+For the current implementation, implement the complete:
+
+WAV
+  ↓
+12-second segmentation
+  ↓
+4 × 3-second windows
+  ↓
+pretrained Musicnn
+  ↓
+Linear → 128
+  ↓
+Transformer
+  ↓
+mean pooling
+  ↓
+VAE
+
+branch exactly as specified in the original prompt.
+
+Also implement the recording-aware dataset/splitting infrastructure described above.
+
+Do NOT yet invent the MIDI feature architecture or final fusion/classifier architecture if those have not been specified.
+
+The code should be structured so that the MIDI branch and recording-level classifier can be added later without redesigning the existing audio architecture.

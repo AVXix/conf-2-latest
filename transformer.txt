@@ -1,0 +1,122 @@
+import math
+import torch
+import torch.nn as nn
+
+
+class SinusoidalPositionalEncoding(nn.Module):
+    """
+    Sinusoidal positional encoding.
+
+    Input:
+        x: [batch, sequence_length, d_model]
+
+    Output:
+        x: [batch, sequence_length, d_model]
+    """
+
+    def init(self, d_model: int, max_len: int = 512):
+        super().init()
+
+        position = torch.arange(
+            max_len,
+            dtype=torch.float32
+        ).unsqueeze(1)
+
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2, dtype=torch.float32)
+            
+(-math.log(10000.0) / d_model))
+
+        pe = torch.zeros(
+            max_len,
+            d_model,
+            dtype=torch.float32
+        )
+
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+
+        # [1, max_len, d_model]
+        pe = pe.unsqueeze(0)
+
+        self.register_buffer("pe", pe)
+
+    def forward(self, x):
+        seq_len = x.size(1)
+
+        return x + self.pe[:, :seq_len]
+
+
+class MusicTransformer(nn.Module):
+    """
+    Temporal Transformer for musicnn embeddings.
+
+    Expected input:
+        [B, 4, 128]
+
+    Four tokens correspond to:
+        0-3 sec
+        3-6 sec
+        6-9 sec
+        9-12 sec
+
+    Output:
+        [B, 128]
+    """
+
+    def init(
+        self,
+        d_model: int = 128,
+        nhead: int = 8,
+        num_layers: int = 4,
+        dim_feedforward: int = 512,
+        dropout: float = 0.1,
+    ):
+        super().init()
+
+        assert d_model % nhead == 0
+
+        self.positional_encoding = SinusoidalPositionalEncoding(
+            d_model=d_model
+        )
+
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+
+        self.encoder = nn.TransformerEncoder(
+            encoder_layer=encoder_layer,
+            num_layers=num_layers,
+            norm=nn.LayerNorm(d_model),
+        )
+
+        self.output_norm = nn.LayerNorm(d_model)
+
+    def forward(self, x):
+        """
+        x:
+            [B, 4, 128]
+
+        returns:
+            [B, 128]
+        """
+
+        # Add temporal position information
+        x = self.positional_encoding(x)
+
+        # Transformer encoder
+        x = self.encoder(x)
+
+        # Mean pooling over the four temporal tokens
+        x = x.mean(dim=1)
+
+        # Final normalization
+        x = self.output_norm(x)
+
+        return x

@@ -1,0 +1,7 @@
+torch>=2.2
+librosa>=0.10
+soundfile>=0.12
+pytest>=8.0
+scikit-learn>=1.4
+# The local official musicnn implementation is TensorFlow 1-compatible code.
+# Install tensorflow separately only when using its checkpoint adapter.

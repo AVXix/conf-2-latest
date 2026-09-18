@@ -1,0 +1,588 @@
+You are implementing my classical-music era classification model in Python/PyTorch.
+
+IMPORTANT:
+Do NOT redesign or simplify the architecture.
+Do NOT replace components with MERT, PANNs, ResNet, EfficientNet, or another pretrained model.
+Do NOT repeatedly change the CNN or Transformer architecture.
+Implement exactly the architecture specified below.
+
+============================================================
+PROJECT GOAL
+============================================================
+
+Classify classical music audio into historical musical eras.
+
+The dataset contains:
+- WAV/audio files
+- MIDI files
+- era labels
+
+The main audio unit is a 12-second segment.
+
+The model must eventually combine:
+1. pretrained musicnn audio representation
+2. Transformer temporal modeling
+3. VAE latent representation
+4. MIDI features
+5. final era classifier
+
+For this task, first implement the COMPLETE AUDIO + TRANSFORMER + VAE branch cleanly and modularly.
+
+============================================================
+FIXED AUDIO ARCHITECTURE
+============================================================
+
+Use pretrained musicnn as the CNN/audio feature extractor.
+
+Use the ORIGINAL musicnn pretrained weights rather than training a new CNN from scratch.
+
+Preferred model:
+    MTT_musicnn
+
+The official musicnn implementation supports pretrained music models and intermediate feature extraction.
+
+For PyTorch, you may use the available musicnn-pytorch implementation if it is reliable and compatible.
+
+Do NOT use musicnn's final 50 music-tag probabilities as the representation.
+
+Instead extract an intermediate/penultimate embedding.
+
+The musicnn model operates on approximately 3-second audio patches.
+
+Each 12-second segment should therefore be divided into FOUR 3-second windows:
+
+    12 seconds
+       |
+       +-- 0-3 sec
+       +-- 3-6 sec
+       +-- 6-9 sec
+       +-- 9-12 sec
+
+Run musicnn independently on each window.
+
+This produces:
+
+    [batch, 4, MUSICNN_FEATURE_DIM]
+
+Do not immediately mean-pool these four features.
+
+They must remain as four temporal tokens for the Transformer.
+
+If the pretrained musicnn embedding dimension is not 128, add a Linear projection:
+
+    MUSICNN_FEATURE_DIM -> 128
+
+The resulting tensor must be:
+
+    [B, 4, 128]
+
+============================================================
+TRANSFORMER
+============================================================
+
+Implement a custom Transformer ENCODER for temporal modeling.
+
+Fixed architecture:
+
+    input dimension = 128
+    d_model = 128
+    number of attention heads = 8
+    number of Transformer encoder layers = 4
+    feed-forward dimension = 512
+    dropout = 0.1
+    activation = GELU
+
+Use PyTorch's TransformerEncoder / TransformerEncoderLayer.
+
+Use:
+
+    batch_first=True
+
+Use LayerNorm.
+
+Use positional encoding before the Transformer.
+
+Prefer sinusoidal positional encoding so there are no additional learned positional parameters.
+
+Architecture:
+
+    [B, 4, 128]
+          |
+    positional encoding
+          |
+    Transformer Encoder
+      4 layers
+      8 heads
+      d_model 128
+      FFN 512
+      GELU
+      dropout 0.1
+          |
+    [B, 4, 128]
+          |
+    mean pooling over temporal dimension
+          |
+    [B, 128]
+
+This 128-D vector is the Transformer representation.
+
+Do NOT reduce it before the Transformer.
+
+Do NOT use only one token.
+
+The purpose of the Transformer is to model relationships between the four 3-second musicnn representations.
+
+============================================================
+VAE
+============================================================
+
+Implement a VAE operating on the 128-D Transformer representation.
+
+Input:
+
+    [B, 128]
+
+Latent dimension:
+
+    64
+
+Encoder:
+
+    128
+      |
+    Linear
+      |
+    LayerNorm
+      |
+    GELU
+      |
+    128 hidden units
+      |
+    +------------------+
+    |                  |
+    Linear -> mu       Linear -> log_var
+    |                  |
+    64                 64
+
+Use the standard reparameterization trick:
+
+    std = exp(0.5 * log_var)
+    eps = random normal
+    z = mu + eps * std
+
+Therefore:
+
+    z = [B, 64]
+
+Decoder:
+
+    64
+      |
+    Linear
+      |
+    LayerNorm
+      |
+    GELU
+      |
+    128
+      |
+    Linear
+      |
+    128
+
+The VAE reconstructs the Transformer's 128-D representation.
+
+Therefore:
+
+    input to VAE       = [B, 128]
+    reconstruction     = [B, 128]
+    mu                 = [B, 64]
+    log_var            = [B, 64]
+    z                  = [B, 64]
+
+============================================================
+VAE LOSS
+============================================================
+
+Implement:
+
+    reconstruction_loss = MSE(reconstruction, target)
+
+and:
+
+    KL =
+        -0.5 * mean(
+            1 + log_var
+            - mu^2
+            - exp(log_var)
+        )
+
+Total:
+
+    total_loss =
+        reconstruction_loss
+        + beta * KL
+
+Make beta configurable.
+
+Default:
+
+    beta = 1.0
+
+Do NOT hard-code beta in multiple places.
+
+============================================================
+MODEL STRUCTURE
+============================================================
+
+Create clean modules/classes:
+
+    models/
+        musicnn_encoder.py
+        transformer.py
+        vae.py
+        audio_model.py
+
+Suggested classes:
+
+    MusicNNEncoder
+    MusicTransformer
+    VAE
+    AudioRepresentationModel
+
+AudioRepresentationModel should perform:
+
+    audio
+      |
+    12-second segment
+      |
+    split into 4 x 3-second windows
+      |
+    pretrained musicnn
+      |
+    musicnn embeddings
+      |
+    projection to 128
+      |
+    [B,4,128]
+      |
+    positional encoding
+      |
+    Transformer
+      |
+    mean pooling
+      |
+    [B,128]
+      |
+    VAE
+      |
+    z [B,64]
+
+The forward method should return a dictionary:
+
+    {
+        "transformer_embedding": [B,128],
+        "reconstruction": [B,128],
+        "mu": [B,64],
+        "log_var": [B,64],
+        "z": [B,64]
+    }
+
+============================================================
+IMPORTANT MUSICNN REQUIREMENTS
+============================================================
+
+Do NOT accidentally use the final 50 music-tag output as the Transformer input.
+
+We need an intermediate representation / penultimate representation.
+
+Investigate the installed musicnn implementation and determine the exact dimensionality of the selected embedding.
+
+Do not assume the dimension is 128.
+
+If musicnn produces N dimensions:
+
+    Linear(N, 128)
+
+must convert it to 128.
+
+Document the actual N in the code/comments.
+
+Use pretrained weights.
+
+Initially FREEZE the musicnn parameters.
+
+Make this configurable:
+
+    freeze_musicnn = True
+
+Later I want the option to fine-tune it.
+
+When:
+
+    freeze_musicnn = False
+
+the musicnn parameters should receive gradients normally.
+
+============================================================
+DATA PIPELINE
+============================================================
+
+Create a Dataset implementation that accepts:
+
+    WAV path
+    MIDI path
+    era label
+
+For the audio branch:
+
+1. Load WAV
+2. Convert to the required sampling rate expected by musicnn
+3. Extract the 12-second segment
+4. Divide it into four 3-second windows
+5. Send each window through musicnn
+6. Produce [4, feature_dim]
+
+Do not permanently resample or modify the source audio files.
+
+Handle audio shorter than 12 seconds safely.
+
+Use padding where necessary.
+
+Do not silently discard short examples.
+
+============================================================
+PROJECT STRUCTURE
+============================================================
+
+Create:
+
+    project/
+    |
+    +-- models/
+    |     +-- musicnn_encoder.py
+    |     +-- transformer.py
+    |     +-- vae.py
+    |     +-- audio_model.py
+    |
+    +-- data/
+    |     +-- dataset.py
+    |     +-- audio_utils.py
+    |
+    +-- training/
+    |     +-- losses.py
+    |     +-- train.py
+    |     +-- validation.py
+    |
+    +-- tests/
+    |     +-- test_shapes.py
+    |     +-- test_forward.py
+    |
+    +-- config.py
+    +-- requirements.txt
+    +-- README.md
+
+Keep the code modular.
+
+============================================================
+CONFIGURATION
+============================================================
+
+Put model hyperparameters in one configuration object/file:
+
+    MUSICNN_MODEL = "MTT_musicnn"
+
+    AUDIO_SEGMENT_SECONDS = 12
+    MUSICNN_WINDOW_SECONDS = 3
+
+    TRANSFORMER_D_MODEL = 128
+    TRANSFORMER_HEADS = 8
+    TRANSFORMER_LAYERS = 4
+    TRANSFORMER_FF_DIM = 512
+    TRANSFORMER_DROPOUT = 0.1
+
+    VAE_INPUT_DIM = 128
+    VAE_HIDDEN_DIM = 128
+    VAE_LATENT_DIM = 64
+    VAE_DROPOUT = 0.1
+    VAE_BETA = 1.0
+
+    FREEZE_MUSICNN = True
+
+Do not duplicate these values throughout the code.
+
+============================================================
+TESTING
+============================================================
+
+Create tests that run WITHOUT requiring the entire dataset.
+
+Test the Transformer with:
+
+    x = torch.randn(8, 4, 128)
+
+Expected:
+
+    transformer output = [8,128]
+
+Test VAE:
+
+    x = torch.randn(8,128)
+
+Expected:
+
+    reconstruction = [8,128]
+    mu             = [8,64]
+    log_var        = [8,64]
+    z              = [8,64]
+
+Test the complete audio model.
+
+Expected:
+
+    input:
+        [8,4,MUSICNN_FEATURE_DIM]
+
+    output:
+        transformer_embedding [8,128]
+        reconstruction       [8,128]
+        mu                    [8,64]
+        log_var               [8,64]
+        z                     [8,64]
+
+Also perform a backward-pass test to ensure gradients work.
+
+============================================================
+TRAINING
+============================================================
+
+Implement a training loop for the audio representation model.
+
+Initially:
+
+    musicnn frozen
+    Transformer trainable
+    VAE trainable
+
+The optimizer should only receive parameters that require gradients.
+
+Use AdamW.
+
+Make learning rate configurable.
+
+Log:
+
+    total loss
+    reconstruction loss
+    KL loss
+
+Use validation after every epoch.
+
+Save:
+
+    best_model.pt
+
+based on validation loss.
+
+============================================================
+DO NOT DO THESE THINGS
+============================================================
+
+Do NOT:
+
+- replace musicnn with MERT
+- replace musicnn with PANNs
+- replace musicnn with ResNet
+- create another CNN
+- add a second Transformer
+- use the 50 musicnn tags as features
+- change Transformer layers from 4
+- change Transformer dimension from 128
+- change attention heads from 8
+- change FFN from 512
+- change VAE latent from 64
+- remove the VAE
+- mean-pool the four musicnn windows BEFORE the Transformer
+- train the musicnn CNN from scratch initially
+- silently change the 12-second segment size
+
+============================================================
+CODE QUALITY
+============================================================
+
+Write production-quality PyTorch code.
+
+Use:
+
+    type hints
+    docstrings
+    clear variable names
+    error checking
+    device handling
+    CPU/GPU support
+    reproducible random seeds
+
+Avoid unnecessary abstraction.
+
+Do not create dozens of tiny files.
+
+Make the code easy for a researcher to modify.
+
+Before finishing:
+
+1. Install/check dependencies.
+2. Verify imports.
+3. Run the unit tests.
+4. Run a complete dummy forward pass.
+5. Run a dummy backward pass.
+6. Print all tensor shapes.
+7. Report the exact musicnn embedding dimension discovered.
+8. Report the final parameter counts for:
+       musicnn
+       Transformer
+       VAE
+       total trainable parameters
+9. Explain any compatibility issue with the chosen musicnn PyTorch implementation.
+10. Do not claim the model works until the dummy forward and backward tests actually pass.
+
+============================================================
+FINAL EXPECTED PIPELINE
+============================================================
+
+The final audio branch MUST be:
+
+12-sec WAV
+    ↓
+4 × 3-sec windows
+    ↓
+pretrained musicnn
+    ↓
+musicnn intermediate embedding
+    ↓
+Linear → 128
+    ↓
+4 × 128 temporal sequence
+    ↓
+sinusoidal positional encoding
+    ↓
+4-layer Transformer Encoder
+    ↓
+8 attention heads
+    ↓
+d_model = 128
+    ↓
+FFN = 512
+    ↓
+GELU
+    ↓
+dropout = 0.1
+    ↓
+mean temporal pooling
+    ↓
+128-D representation
+    ↓
+VAE
+    ↓
+64-D latent z
+
+Do this implementation now.

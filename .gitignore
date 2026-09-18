@@ -1,0 +1,16 @@
+/.pytest_cache
+/.venv
+
+# Local datasets and generated feature files
+/Data/
+data/
+datasets/
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.mid
+*.midi
+*.npy
+*.npz
+*.pkl

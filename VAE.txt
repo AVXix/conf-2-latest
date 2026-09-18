@@ -1,0 +1,179 @@
+vae.py
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+class VAE(nn.Module):
+    """
+    Representation-learning VAE.
+
+    Input:
+        [B, 128]
+
+    Latent:
+        [B, 64]
+
+    Reconstruction:
+        [B, 128]
+    """
+
+    def init(
+        self,
+        input_dim: int = 128,
+        hidden_dim: int = 128,
+        latent_dim: int = 64,
+        dropout: float = 0.1,
+    ):
+        super().init()
+
+        # -------------------------
+        # Encoder
+        # -------------------------
+
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+        )
+
+        self.mu_layer = nn.Linear(
+            hidden_dim,
+            latent_dim
+        )
+
+        self.logvar_layer = nn.Linear(
+            hidden_dim,
+            latent_dim
+        )
+
+        # -------------------------
+        # Decoder
+        # -------------------------
+
+        self.decoder = nn.Sequential(
+            nn.Linear(latent_dim, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(
+                hidden_dim,
+                input_dim
+            ),
+        )
+
+    def encode(self, x):
+        """
+        x:
+            [B, 128]
+
+        returns:
+            mu:
+                [B, 64]
+
+            logvar:
+                [B, 64]
+        """
+
+        h = self.encoder(x)
+
+        mu = self.mu_layer(h)
+
+        logvar = self.logvar_layer(h)
+
+        return mu, logvar
+
+    def reparameterize(self, mu, logvar):
+        """
+        Reparameterization trick:
+
+            z = mu + sigma * epsilon
+
+        sigma = exp(0.5 * logvar)
+        epsilon ~ N(0, I)
+        """
+
+        std = torch.exp(
+            0.5 * logvar
+        )
+
+        epsilon = torch.randn_like(std)
+
+        z = mu + epsilon * std
+
+        return z
+
+    def decode(self, z):
+        """
+        z:
+            [B, 64]
+
+        returns:
+            [B, 128]
+        """
+
+        return self.decoder(z)
+
+    def forward(self, x):
+        """
+        x:
+            [B, 128]
+        """
+
+        mu, logvar = self.encode(x)
+
+        z = self.reparameterize(
+            mu,
+            logvar
+        )
+
+        reconstruction = self.decode(z)
+
+        return reconstruction, mu, logvar, z
+
+
+def vae_loss(
+    reconstruction,
+    target,
+    mu,
+    logvar,
+    beta: float = 1.0,
+):
+    """
+    VAE loss:
+
+        L = reconstruction_loss + beta * KL
+
+    Reconstruction:
+        MSE between reconstructed and original
+        128-D Transformer representation.
+
+    KL:
+        KL(q(z|x) || N(0,I))
+    """
+
+    reconstruction_loss = F.mse_loss(
+        reconstruction,
+        target,
+        reduction="mean"
+    )
+
+    kl_loss = -0.5 * torch.mean(
+        1.0
+        + logvar
+        
+mu.pow(2)
+logvar.exp())
+
+    total_loss = (
+        reconstruction_loss
+        + beta * kl_loss
+    )
+
+    return (
+        total_loss,
+        reconstruction_loss,
+        kl_loss,
+    )

@@ -1,0 +1,4 @@
+# Use this in a separate Python 3.10 or 3.11 environment.
+tensorflow==2.15.*
+librosa>=0.10,<1.0
+numpy<2.0

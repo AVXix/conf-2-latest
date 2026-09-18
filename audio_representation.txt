@@ -1,0 +1,50 @@
+audio_representation.py
+import torch
+import torch.nn as nn
+
+from transformer import MusicTransformer
+from vae import VAE
+
+
+class AudioRepresentationModel(nn.Module):
+
+    def init(
+        self,
+        input_dim: int = 128,
+    ):
+        super().init()
+
+        self.transformer = MusicTransformer(
+            d_model=128,
+            nhead=8,
+            num_layers=4,
+            dim_feedforward=512,
+            dropout=0.1,
+        )
+
+        self.vae = VAE(
+            input_dim=128,
+            hidden_dim=128,
+            latent_dim=64,
+            dropout=0.1,
+        )
+
+    def forward(self, musicnn_features):
+
+        # [B, 4, 128]
+        transformer_output = self.transformer(
+            musicnn_features
+        )
+
+        # [B, 128] -> [B, 64]
+        reconstruction, mu, logvar, z = self.vae(
+            transformer_output
+        )
+
+        return {
+            "transformer_embedding": transformer_output,
+            "reconstruction": reconstruction,
+            "mu": mu,
+            "logvar": logvar,
+            "z": z,
+        }
