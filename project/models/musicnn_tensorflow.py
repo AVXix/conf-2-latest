@@ -54,6 +54,8 @@ class TensorFlowMusicNNExtractor(nn.Module):
         # The checked-in checkpoint metadata points to the original Linux path.
         # These files were saved with an empty prefix, producing `.index` and
         # `.data-*` directly inside the model directory.
+        if checkpoint is not None and not Path(f"{checkpoint}.index").is_file():
+            checkpoint = None
         if checkpoint is None and (checkpoint_directory / ".index").is_file():
             checkpoint = str(checkpoint_directory) + os.sep
         if checkpoint is None:
